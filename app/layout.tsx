@@ -1,35 +1,35 @@
-import { Toaster } from 'sonner';
-import type { Metadata } from 'next';
-import { Bricolage_Grotesque, Geist_Mono } from 'next/font/google';
-import { ThemeProvider } from '@/components/theme-provider';
+import { Toaster } from 'sonner'
+import type { Metadata } from 'next'
+import { Bricolage_Grotesque, Inconsolata } from 'next/font/google'
+import { ThemeProvider } from '@/components/theme-provider'
 
-import './globals.css';
-import { SessionProvider } from 'next-auth/react';
+import './globals.css'
+import { SessionProvider } from 'next-auth/react'
 
 export const metadata: Metadata = {
   metadataBase: new URL('https://chat.trinhvaphuong.com'),
   title: 'Chat - Trinh & Phương',
   description: 'AI ChatBot',
-};
+}
 
 export const viewport = {
   maximumScale: 1,
-};
+}
 
 const sans = Bricolage_Grotesque({
   subsets: ['latin'],
   display: 'swap',
   variable: '--font-sans',
-});
+})
 
-const geistMono = Geist_Mono({
+const monospaced = Inconsolata({
   subsets: ['latin'],
   display: 'swap',
-  variable: '--font-geist-mono',
-});
+  variable: '--font-monospaced',
+})
 
-const LIGHT_THEME_COLOR = 'hsl(0 0% 100%)';
-const DARK_THEME_COLOR = 'hsl(240deg 10% 3.92%)';
+const LIGHT_THEME_COLOR = 'hsl(0 0% 100%)'
+const DARK_THEME_COLOR = 'hsl(240deg 10% 3.92%)'
 const THEME_COLOR_SCRIPT = `\
 (function() {
   var html = document.documentElement;
@@ -46,19 +46,15 @@ const THEME_COLOR_SCRIPT = `\
   var observer = new MutationObserver(updateThemeColor);
   observer.observe(html, { attributes: true, attributeFilter: ['class'] });
   updateThemeColor();
-})();`;
+})();`
 
 export default async function RootLayout({
   children,
 }: Readonly<{
-  children: React.ReactNode;
+  children: React.ReactNode
 }>) {
   return (
-    <html
-      lang="en"
-      suppressHydrationWarning
-      className={`${sans.variable} ${geistMono.variable}`}
-    >
+    <html lang="en" suppressHydrationWarning className={`${sans.variable} ${monospaced.variable}`}>
       <head>
         <script
           dangerouslySetInnerHTML={{
@@ -67,16 +63,11 @@ export default async function RootLayout({
         />
       </head>
       <body className="antialiased">
-        <ThemeProvider
-          attribute="class"
-          defaultTheme="system"
-          enableSystem
-          disableTransitionOnChange
-        >
+        <ThemeProvider attribute="class" defaultTheme="system" enableSystem disableTransitionOnChange>
           <Toaster position="top-center" />
           <SessionProvider>{children}</SessionProvider>
         </ThemeProvider>
       </body>
     </html>
-  );
+  )
 }
