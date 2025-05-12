@@ -11,6 +11,7 @@ import {
   reasoningModel,
   titleModel,
 } from './models.test';
+import { openRouter, DEFAULT_MODEL } from './openrouter';
 
 export const myProvider = isTestEnvironment
   ? customProvider({
@@ -23,13 +24,13 @@ export const myProvider = isTestEnvironment
     })
   : customProvider({
       languageModels: {
-        'chat-model': xai('grok-2-vision-1212'),
+        'chat-model': openRouter(DEFAULT_MODEL),
         'chat-model-reasoning': wrapLanguageModel({
-          model: xai('grok-3-mini-beta'),
+          model: openRouter(DEFAULT_MODEL),
           middleware: extractReasoningMiddleware({ tagName: 'think' }),
         }),
-        'title-model': xai('grok-2-1212'),
-        'artifact-model': xai('grok-2-1212'),
+        'title-model': openRouter(DEFAULT_MODEL),
+        'artifact-model': openRouter(DEFAULT_MODEL),
       },
       imageModels: {
         'small-model': xai.image('grok-2-image'),

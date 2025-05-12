@@ -1,29 +1,14 @@
-import { motion } from 'framer-motion';
+import { motion } from 'framer-motion'
 
 export const Greeting = () => {
   return (
-    <div
-      key="overview"
-      className="max-w-3xl mx-auto md:mt-20 px-8 size-full flex flex-col justify-center"
-    >
-      <motion.div
-        initial={{ opacity: 0, y: 10 }}
-        animate={{ opacity: 1, y: 0 }}
-        exit={{ opacity: 0, y: 10 }}
-        transition={{ delay: 0.5 }}
-        className="text-2xl font-semibold"
-      >
-        Hello there!
+    <div key="overview" className="max-w-3xl mx-auto md:mt-20 px-8 size-full flex flex-col justify-center">
+      <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: 10 }} transition={{ delay: 0.5 }} className="text-2xl font-semibold">
+        ⛅️ Xin chào!
       </motion.div>
-      <motion.div
-        initial={{ opacity: 0, y: 10 }}
-        animate={{ opacity: 1, y: 0 }}
-        exit={{ opacity: 0, y: 10 }}
-        transition={{ delay: 0.6 }}
-        className="text-2xl text-zinc-500"
-      >
-        How can I help you today?
+      <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: 10 }} transition={{ delay: 0.6 }} className="text-2xl text-zinc-500">
+        Trang này được tạo nên để gia đình bé Mây và mẹ Tỷ!
       </motion.div>
     </div>
-  );
-};
+  )
+}
