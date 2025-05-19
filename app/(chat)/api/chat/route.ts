@@ -1,112 +1,136 @@
-import { appendClientMessage, appendResponseMessages, createDataStream, smoothStream, streamText } from 'ai'
-import { auth, type UserType } from '@/app/(auth)/auth'
-import { type RequestHints, systemPrompt } from '@/lib/ai/prompts'
-import { createStreamId, deleteChatById, getChatById, getMessageCountByUserId, getMessagesByChatId, getStreamIdsByChatId, saveChat, saveMessages } from '@/lib/db/queries'
-import { generateUUID, getTrailingMessageId } from '@/lib/utils'
-import { generateTitleFromUserMessage } from '../../actions'
-import { createDocument } from '@/lib/ai/tools/create-document'
-import { updateDocument } from '@/lib/ai/tools/update-document'
-import { requestSuggestions } from '@/lib/ai/tools/request-suggestions'
-import { getWeather } from '@/lib/ai/tools/get-weather'
-import { isProductionEnvironment } from '@/lib/constants'
-import { myProvider } from '@/lib/ai/providers'
-import { entitlementsByUserType } from '@/lib/ai/entitlements'
-import { postRequestBodySchema, type PostRequestBody } from './schema'
-import { geolocation } from '@vercel/functions'
-import { createResumableStreamContext, type ResumableStreamContext } from 'resumable-stream'
-import { after } from 'next/server'
-import type { Chat } from '@/lib/db/schema'
-import { differenceInSeconds } from 'date-fns'
+import {
+  appendClientMessage,
+  appendResponseMessages,
+  createDataStream,
+  smoothStream,
+  streamText,
+} from 'ai';
+import { auth, type UserType } from '@/app/(auth)/auth';
+import { type RequestHints, systemPrompt } from '@/lib/ai/prompts';
+import {
+  createStreamId,
+  deleteChatById,
+  getChatById,
+  getMessageCountByUserId,
+  getMessagesByChatId,
+  getStreamIdsByChatId,
+  saveChat,
+  saveMessages,
+} from '@/lib/db/queries';
+import { generateUUID, getTrailingMessageId } from '@/lib/utils';
+import { generateTitleFromUserMessage } from '../../actions';
+import { createDocument } from '@/lib/ai/tools/create-document';
+import { updateDocument } from '@/lib/ai/tools/update-document';
+import { requestSuggestions } from '@/lib/ai/tools/request-suggestions';
+import { getWeather } from '@/lib/ai/tools/get-weather';
+import { isProductionEnvironment } from '@/lib/constants';
+import { myProvider } from '@/lib/ai/providers';
+import { entitlementsByUserType } from '@/lib/ai/entitlements';
+import { postRequestBodySchema, type PostRequestBody } from './schema';
+import { geolocation } from '@vercel/functions';
+import {
+  createResumableStreamContext,
+  type ResumableStreamContext,
+} from 'resumable-stream';
+import { after } from 'next/server';
+import type { Chat } from '@/lib/db/schema';
+import { differenceInSeconds } from 'date-fns';
 
-export const maxDuration = 60
+export const maxDuration = 60;
 
-let globalStreamContext: ResumableStreamContext | null = null
+let globalStreamContext: ResumableStreamContext | null = null;
 
 function getStreamContext() {
   if (!globalStreamContext) {
     try {
       globalStreamContext = createResumableStreamContext({
         waitUntil: after,
-      })
+      });
     } catch (error: any) {
       if (error.message.includes('REDIS_URL')) {
-        console.log(' > Resumable streams are disabled due to missing REDIS_URL')
+        console.log(
+          ' > Resumable streams are disabled due to missing REDIS_URL',
+        );
       } else {
-        console.error(error)
+        console.error(error);
       }
     }
   }
 
-  return globalStreamContext
+  return globalStreamContext;
 }
 
 export async function POST(request: Request) {
-  let requestBody: PostRequestBody
+  let requestBody: PostRequestBody;
 
   try {
-    const json = await request.json()
-    requestBody = postRequestBodySchema.parse(json)
+    const json = await request.json();
+    requestBody = postRequestBodySchema.parse(json);
   } catch (_) {
-    return new Response('Invalid request body', { status: 400 })
+    return new Response('Invalid request body', { status: 400 });
   }
 
   try {
-    const { id, message, selectedChatModel, selectedVisibilityType } = requestBody
+    const { id, message, selectedChatModel, selectedVisibilityType } =
+      requestBody;
 
-    const session = await auth()
+    const session = await auth();
 
     if (!session?.user) {
-      return new Response('Unauthorized', { status: 401 })
+      return new Response('Unauthorized', { status: 401 });
     }
 
-    const userType: UserType = session.user.type
+    const userType: UserType = session.user.type;
 
     const messageCount = await getMessageCountByUserId({
       id: session.user.id,
       differenceInHours: 24,
-    })
+    });
 
     if (messageCount > entitlementsByUserType[userType].maxMessagesPerDay) {
-      return new Response('You have exceeded your maximum number of messages for the day! Please try again later.', {
-        status: 429,
-      })
+      return new Response(
+        'You have exceeded your maximum number of messages for the day! Please try again later.',
+        {
+          status: 429,
+        },
+      );
     }
 
-    const chat = await getChatById({ id })
+    const chat = await getChatById({ id });
 
     if (!chat) {
       const title = await generateTitleFromUserMessage({
         message,
-      })
+      });
 
       await saveChat({
         id,
         userId: session.user.id,
         title,
         visibility: selectedVisibilityType,
-      })
+      });
     } else {
       if (chat.userId !== session.user.id) {
-        return new Response('Forbidden', { status: 403 })
+        return new Response('Forbidden', { status: 403 });
       }
     }
 
-    const previousMessages = await getMessagesByChatId({ id })
+    const previousMessages = await getMessagesByChatId({ id });
 
     const messages = appendClientMessage({
       // @ts-expect-error: todo add type conversion from DBMessage[] to UIMessage[]
       messages: previousMessages,
       message,
-    })
+    });
 
-    const { longitude, latitude, city, country } = geolocation(request)
+    const { longitude, latitude, city, country } = geolocation(request);
 
     const requestHints: RequestHints = {
       longitude,
       latitude,
       city,
       country,
-    }
+    };
 
     await saveMessages({
       messages: [
@@ -119,18 +143,28 @@ export async function POST(request: Request) {
           createdAt: new Date(),
         },
       ],
-    })
+    });
 
-    const streamId = generateUUID()
-    await createStreamId({ streamId, chatId: id })
+    const streamId = generateUUID();
+    await createStreamId({ streamId, chatId: id });
 
     const stream = createDataStream({
       execute: (dataStream) => {
-        let experimental_activeTools: any = []
-        let tools = {}
+        let experimental_activeTools: any = [];
+        let tools = {};
 
-        if (!myProvider.languageModel(selectedChatModel).modelId.endsWith(':free')) {
-          experimental_activeTools = selectedChatModel === 'chat-model-reasoning' ? [] : ['getWeather', 'createDocument', 'updateDocument', 'requestSuggestions']
+        if (
+          !myProvider.languageModel(selectedChatModel).modelId.endsWith(':free')
+        ) {
+          experimental_activeTools =
+            selectedChatModel === 'chat-model-reasoning'
+              ? []
+              : [
+                  'getWeather',
+                  'createDocument',
+                  'updateDocument',
+                  'requestSuggestions',
+                ];
           tools = {
             getWeather,
             createDocument: createDocument({ session, dataStream }),
@@ -139,7 +173,7 @@ export async function POST(request: Request) {
               session,
               dataStream,
             }),
-          }
+          };
         }
 
         const result = streamText({
@@ -155,17 +189,19 @@ export async function POST(request: Request) {
             if (session.user?.id) {
               try {
                 const assistantId = getTrailingMessageId({
-                  messages: response.messages.filter((message) => message.role === 'assistant'),
-                })
+                  messages: response.messages.filter(
+                    (message) => message.role === 'assistant',
+                  ),
+                });
 
                 if (!assistantId) {
-                  throw new Error('No assistant message found!')
+                  throw new Error('No assistant message found!');
                 }
 
                 const [, assistantMessage] = appendResponseMessages({
                   messages: [message],
                   responseMessages: response.messages,
-                })
+                });
 
                 await saveMessages({
                   messages: [
@@ -174,13 +210,15 @@ export async function POST(request: Request) {
                       chatId: id,
                       role: assistantMessage.role,
                       parts: assistantMessage.parts,
-                      attachments: assistantMessage.experimental_attachments ?? [],
+                      attachments:
+                        assistantMessage.experimental_attachments ?? [],
                       createdAt: new Date(),
                     },
                   ],
-                })
+                });
               } catch (_) {
-                console.error('Failed to save chat')
+                console.error('NAH: ', _);
+                console.error('Failed to save chat');
               }
             }
           },
@@ -188,109 +226,113 @@ export async function POST(request: Request) {
             isEnabled: isProductionEnvironment,
             functionId: 'stream-text',
           },
-        })
-        result.consumeStream()
+        });
+        result.consumeStream();
         result.mergeIntoDataStream(dataStream, {
           sendReasoning: true,
-        })
+        });
       },
-      onError: (err) => {
-        console.log(err)
-
-        return 'Oops, an error occurred!'
+      onError: (err: any) => {
+        console.log(err);
+        return err?.message || 'Oops, an error occurred!';
       },
-    })
+    });
 
-    const streamContext = getStreamContext()
+    const streamContext = getStreamContext();
 
     if (streamContext) {
-      return new Response(await streamContext.resumableStream(streamId, () => stream))
+      return new Response(
+        await streamContext.resumableStream(streamId, () => stream),
+      );
     } else {
-      return new Response(stream)
+      return new Response(stream);
     }
   } catch (_) {
-    console.log(_)
+    console.log('HERE:', _);
     return new Response('An error occurred while processing your request!', {
       status: 500,
-    })
+    });
   }
 }
 
 export async function GET(request: Request) {
-  const streamContext = getStreamContext()
-  const resumeRequestedAt = new Date()
+  const streamContext = getStreamContext();
+  const resumeRequestedAt = new Date();
 
   if (!streamContext) {
-    return new Response(null, { status: 204 })
+    return new Response(null, { status: 204 });
   }
 
-  const { searchParams } = new URL(request.url)
-  const chatId = searchParams.get('chatId')
+  const { searchParams } = new URL(request.url);
+  const chatId = searchParams.get('chatId');
 
   if (!chatId) {
-    return new Response('id is required', { status: 400 })
+    return new Response('id is required', { status: 400 });
   }
 
-  const session = await auth()
+  const session = await auth();
 
   if (!session?.user) {
-    return new Response('Unauthorized', { status: 401 })
+    return new Response('Unauthorized', { status: 401 });
   }
 
-  let chat: Chat
+  let chat: Chat;
 
   try {
-    chat = await getChatById({ id: chatId })
+    chat = await getChatById({ id: chatId });
   } catch {
-    return new Response('Not found', { status: 404 })
+    return new Response('Not found', { status: 404 });
   }
 
   if (!chat) {
-    return new Response('Not found', { status: 404 })
+    return new Response('Not found', { status: 404 });
   }
 
   if (chat.visibility === 'private' && chat.userId !== session.user.id) {
-    return new Response('Forbidden', { status: 403 })
+    return new Response('Forbidden', { status: 403 });
   }
 
-  const streamIds = await getStreamIdsByChatId({ chatId })
+  const streamIds = await getStreamIdsByChatId({ chatId });
 
   if (!streamIds.length) {
-    return new Response('No streams found', { status: 404 })
+    return new Response('No streams found', { status: 404 });
   }
 
-  const recentStreamId = streamIds.at(-1)
+  const recentStreamId = streamIds.at(-1);
 
   if (!recentStreamId) {
-    return new Response('No recent stream found', { status: 404 })
+    return new Response('No recent stream found', { status: 404 });
   }
 
   const emptyDataStream = createDataStream({
     execute: () => {},
-  })
+  });
 
-  const stream = await streamContext.resumableStream(recentStreamId, () => emptyDataStream)
+  const stream = await streamContext.resumableStream(
+    recentStreamId,
+    () => emptyDataStream,
+  );
 
   /*
    * For when the generation is streaming during SSR
    * but the resumable stream has concluded at this point.
    */
   if (!stream) {
-    const messages = await getMessagesByChatId({ id: chatId })
-    const mostRecentMessage = messages.at(-1)
+    const messages = await getMessagesByChatId({ id: chatId });
+    const mostRecentMessage = messages.at(-1);
 
     if (!mostRecentMessage) {
-      return new Response(emptyDataStream, { status: 200 })
+      return new Response(emptyDataStream, { status: 200 });
     }
 
     if (mostRecentMessage.role !== 'assistant') {
-      return new Response(emptyDataStream, { status: 200 })
+      return new Response(emptyDataStream, { status: 200 });
     }
 
-    const messageCreatedAt = new Date(mostRecentMessage.createdAt)
+    const messageCreatedAt = new Date(mostRecentMessage.createdAt);
 
     if (differenceInSeconds(resumeRequestedAt, messageCreatedAt) > 15) {
-      return new Response(emptyDataStream, { status: 200 })
+      return new Response(emptyDataStream, { status: 200 });
     }
 
     const restoredStream = createDataStream({
@@ -298,44 +340,44 @@ export async function GET(request: Request) {
         buffer.writeData({
           type: 'append-message',
           message: JSON.stringify(mostRecentMessage),
-        })
+        });
       },
-    })
+    });
 
-    return new Response(restoredStream, { status: 200 })
+    return new Response(restoredStream, { status: 200 });
   }
 
-  return new Response(stream, { status: 200 })
+  return new Response(stream, { status: 200 });
 }
 
 export async function DELETE(request: Request) {
-  const { searchParams } = new URL(request.url)
-  const id = searchParams.get('id')
+  const { searchParams } = new URL(request.url);
+  const id = searchParams.get('id');
 
   if (!id) {
-    return new Response('Not Found', { status: 404 })
+    return new Response('Not Found', { status: 404 });
   }
 
-  const session = await auth()
+  const session = await auth();
 
   if (!session?.user?.id) {
-    return new Response('Unauthorized', { status: 401 })
+    return new Response('Unauthorized', { status: 401 });
   }
 
   try {
-    const chat = await getChatById({ id })
+    const chat = await getChatById({ id });
 
     if (chat.userId !== session.user.id) {
-      return new Response('Forbidden', { status: 403 })
+      return new Response('Forbidden', { status: 403 });
     }
 
-    const deletedChat = await deleteChatById({ id })
+    const deletedChat = await deleteChatById({ id });
 
-    return Response.json(deletedChat, { status: 200 })
+    return Response.json(deletedChat, { status: 200 });
   } catch (error) {
-    console.error(error)
+    console.error(error);
     return new Response('An error occurred while processing your request!', {
       status: 500,
-    })
+    });
   }
 }
